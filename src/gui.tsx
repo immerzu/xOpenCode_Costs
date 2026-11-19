@@ -122,12 +122,22 @@ export default Plugin.define({
   },
 
   main(ctx) {
+    ctx.log.write("info", "xc-costs: main bereit")
     ctx.provide(Costs, {
-      read: () => fetchSnapshot(),
+      read: async () => {
+        try {
+          return await fetchSnapshot()
+        } catch (e) {
+          ctx.log.write("error", "xc-costs: Abruf fehlgeschlagen: " + String((e && e.message) || e))
+          return failure("error", String((e && e.message) || e))
+        }
+      },
     })
   },
 
   setup(ctx) {
+    ctx.log.write("info", "xc-costs: setup gestartet")
+
     const [label, setLabel] = createSignal("💳 …")
     const [title, setTitle] = createSignal("DeepSeek-Konto — Daten werden geladen")
     const [busy, setBusy] = createSignal(false)
@@ -170,19 +180,26 @@ export default Plugin.define({
       try {
         const snap = await ctx.main(Costs).read()
         paint(snap)
+        ctx.log.write("info", "xc-costs: Stand " + snap.kind + " " + snap.toppedUp + " " + snap.todayCost)
       } catch (e) {
+        ctx.log.write("error", "xc-costs: IPC fehlgeschlagen: " + String((e && e.message) || e))
         paint(failure("error", String((e && e.message) || e)))
       } finally {
         setBusy(false)
       }
     }
 
-    ctx.add(TitlebarItem, () => ({
-      id: "costs",
-      label: label(),
-      title: title(),
-      run: () => ctx.system.openExternal(USAGE_URL),
-    }))
+    try {
+      ctx.add(TitlebarItem, () => ({
+        id: "costs",
+        label: label(),
+        title: title(),
+        run: () => ctx.system.openExternal(USAGE_URL),
+      }))
+      ctx.log.write("info", "xc-costs: TitlebarItem registriert")
+    } catch (e) {
+      ctx.log.write("error", "xc-costs: Registrierung fehlgeschlagen: " + String((e && e.message) || e))
+    }
 
     void refresh()
     const timer = setInterval(() => void refresh(), REFRESH_MS)
