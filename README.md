@@ -69,6 +69,25 @@ neu. **Ein neu eingetragenes Plugin** erscheint erst nach einem Neustart der App
 | `src/gui.tsx` | Badge in der Titelzeile (`setup`) und Abruf im Hauptprozess (`main`) |
 | `test/parse.test.mjs` | 18 Prüfungen der reinen Funktionen |
 
+## Status (19.11.2026)
+
+**Die Anzeige erscheint derzeit nicht** — nicht wegen dieses Codes, sondern weil OpenCode Desktop 2.3.2 unter
+Windows den Fenster-Teil eines Plugins nicht abruft.
+
+- Belegt: Plugin `active`, `features.gui: true`, `/api/plugin/gui?id=xc-costs` liefert das Bundle — die App
+  fragt es aber **nie** an (im Dienstverkehr nur `/api/event`, `/api/rpc/…`, `/api/fs/list`).
+- Gemeldet: [anomalyco/opencode#64866](https://github.com/anomalyco/opencode/issues/64866); Sammelstellen
+  #56037, #60976, #63990.
+- Installation als Git-Paket scheiterte zunächst an #49704 (jedes Paket mit `build`-Skript). Deshalb heißen
+  die Skripte hier `make` und `check` — **nicht** zurückbenennen.
+
+Das Plugin ist installiert und bleibt eingetragen; sobald der Fehler behoben ist, sollte das Badge ohne
+weitere Änderung erscheinen.
+
+**Stillgelegt am 19.11.2026:** Der Eintrag in `opencode.jsonc` ist auskommentiert (`plugin list` meldet „No plugins
+found"). Das Paket bleibt im Cache installiert. Wiedereinschalten: die kommentierte Zeile
+`"plugins": ["git+https://github.com/immerzu/xOpenCode_Costs.git"],` einkommentieren und OpenCode neu starten.
+
 ## Bekannte Grenzen
 
 - Die Endpunkte sind **privat** und können sich ohne Vorwarnung ändern (gleiches Risiko wie im Userscript).
