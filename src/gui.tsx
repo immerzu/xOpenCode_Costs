@@ -1,6 +1,3 @@
-import { readFile } from "node:fs/promises"
-import { homedir } from "node:os"
-import { join } from "node:path"
 import { createSignal } from "solid-js"
 import { Plugin, TitlebarItem } from "@opencode/plugin/gui"
 import { Costs } from "./contract"
@@ -10,7 +7,6 @@ import {
   fmtMoney,
   isPeakTime,
   localDayIso,
-  parseToken,
   relTime,
   toppedUpFromSummary,
 } from "./deepseek.mjs"
@@ -19,12 +15,18 @@ const API_BASE = "https://platform.deepseek.com"
 const USAGE_URL = "https://platform.deepseek.com/usage"
 const REFRESH_MS = 5 * 60 * 1000
 const REQUEST_TIMEOUT = 15000
-const TOKEN_FILE = join(homedir(), ".config", "opencode", "secrets", "deepseek-platform-token")
 
-/** Token-Datei lesen: eine Zeile, Kommentare mit # erlaubt, JSON-Wrapper wird entpackt. */
+/* Node-Module werden erst im Hauptprozess geladen — im Fenster gibt es sie nicht. */
+async function tokenPath() {
+  const [{ homedir }, { join }] = await Promise.all([import("node:os"), import("node:path")])
+  return join(homedir(), ".config", "opencode", "secrets", "deepseek-platform-token")
+}
+
 async function readToken() {
+  const [{ readFile }] = await Promise.all([import("node:fs/promises")])
+  const { parseToken } = await import("./deepseek.mjs")
   try {
-    const raw = await readFile(TOKEN_FILE, "utf8")
+    const raw = await readFile(await tokenPath(), "utf8")
     const first = raw
       .split(/\r?\n/)
       .map((line) => line.trim())
@@ -67,7 +69,7 @@ async function httpGet(url, token) {
 
 async function fetchSnapshot() {
   const token = await readToken()
-  if (!token) return failure("auth", "Kein Token in " + TOKEN_FILE)
+  if (!token) return failure("none", "Kein Token hinterlegt")
 
   const now = new Date()
   const day = localDayIso(now)
@@ -122,13 +124,11 @@ export default Plugin.define({
   },
 
   main(ctx) {
-    ctx.log.write("info", "xc-costs: main bereit")
     ctx.provide(Costs, {
       read: async () => {
         try {
           return await fetchSnapshot()
         } catch (e) {
-          ctx.log.write("error", "xc-costs: Abruf fehlgeschlagen: " + String((e && e.message) || e))
           return failure("error", String((e && e.message) || e))
         }
       },
@@ -136,38 +136,36 @@ export default Plugin.define({
   },
 
   setup(ctx) {
-    ctx.log.write("info", "xc-costs: setup gestartet")
-
     const [label, setLabel] = createSignal("💳 …")
     const [title, setTitle] = createSignal("DeepSeek-Konto — Daten werden geladen")
     const [busy, setBusy] = createSignal(false)
 
     const money = (v, currency) => (v === -1 ? "--" : fmtMoney(v, currency))
+    const dot = (kind) => ({ ok: "🟢", auth: "🔴", error: "🔴" })[kind] || "⚪"
 
     const paint = (snap) => {
       const peak = isPeakTime(new Date()) ? " 🔥" : ""
-      const dot = { ok: "🟢", auth: "🔴", error: "🔴" }[snap.kind] || "⚪"
+      const mark = dot(snap.kind)
 
       if (snap.kind !== "ok") {
-        setLabel(dot + " 💳 " + (snap.kind === "auth" ? "Token nötig" : "Fehler") + peak)
+        setLabel(mark + " 💳 " + (snap.kind === "none" ? "Token nötig" : "Fehler") + peak)
       } else {
-        setLabel(
-          dot + " 💳 " + money(snap.toppedUp, snap.currency) + " · heute " + money(snap.todayCost, snap.currency) + peak,
-        )
+        setLabel(mark + " 💳 " + money(snap.toppedUp, snap.currency) + " · heute " + money(snap.todayCost, snap.currency) + peak)
       }
 
       const lines = [ctx.t("title")]
       if (snap.kind === "ok") {
         lines.push(
           "Topped-up: " + money(snap.toppedUp, snap.currency),
-          "Guthaben gesamt: " + money(snap.total, snap.currency) + (snap.granted > 0 ? " (Gratis: " + money(snap.granted, snap.currency) + ")" : ""),
+          "Guthaben gesamt: " +
+            money(snap.total, snap.currency) +
+            (snap.granted > 0 ? " (Gratis: " + money(snap.granted, snap.currency) + ")" : ""),
           "Kosten heute: " + money(snap.todayCost, snap.currency),
           "Kosten Monat: " + money(snap.monthCost, snap.currency),
           "Aktualisiert: " + relTime(snap.at, Date.now()),
         )
       } else {
         lines.push(snap.note || "unbekannter Fehler")
-        if (snap.kind === "auth") lines.push("", "Token-Datei: " + TOKEN_FILE)
       }
       if (isPeakTime(new Date())) lines.push("", "🔥 Peak-Zeit: regulärer Tarif")
       lines.push("", "Klick: platform.deepseek.com/usage öffnen", "xOpenCode Costs v0.1.0")
@@ -178,32 +176,23 @@ export default Plugin.define({
       if (busy()) return
       setBusy(true)
       try {
-        const snap = await ctx.main(Costs).read()
-        paint(snap)
-        ctx.log.write("info", "xc-costs: Stand " + snap.kind + " " + snap.toppedUp + " " + snap.todayCost)
+        paint(await ctx.main(Costs).read())
       } catch (e) {
-        ctx.log.write("error", "xc-costs: IPC fehlgeschlagen: " + String((e && e.message) || e))
         paint(failure("error", String((e && e.message) || e)))
       } finally {
         setBusy(false)
       }
     }
 
-    try {
-      ctx.add(TitlebarItem, () => ({
-        id: "costs",
-        label: label(),
-        title: title(),
-        run: () => ctx.system.openExternal(USAGE_URL),
-      }))
-      ctx.log.write("info", "xc-costs: TitlebarItem registriert")
-    } catch (e) {
-      ctx.log.write("error", "xc-costs: Registrierung fehlgeschlagen: " + String((e && e.message) || e))
-    }
+    ctx.add(TitlebarItem, () => ({
+      id: "costs",
+      label: label(),
+      title: title(),
+      run: () => ctx.system.openExternal(USAGE_URL),
+    }))
 
     void refresh()
     const timer = setInterval(() => void refresh(), REFRESH_MS)
-
     return () => clearInterval(timer)
   },
 })
