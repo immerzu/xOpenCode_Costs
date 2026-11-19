@@ -8,9 +8,9 @@
     "./gui-experimental": "./dist/gui-experimental.cjs"
   },
   "scripts": {
-    "build": "vite build",
-    "watch": "vite build --watch",
-    "test": "node test/parse.test.mjs"
+    "make": "vite build",
+    "make:watch": "vite build --watch",
+    "check": "node test/parse.test.mjs"
   },
   "devDependencies": {
     "@opencode/plugin": "2.3.2",
