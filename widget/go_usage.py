@@ -123,8 +123,8 @@ def color_for(pct: float, limited: bool) -> str:
 def run_gui() -> None:
     import tkinter as tk
 
-    W, H = 140, 84
-    PAD = 6
+    W, H = 130, 90
+    PAD = 8
     ROW_H = (H - 2 * PAD) / 3
 
     root = tk.Tk()
@@ -238,3 +238,4 @@ def run_print() -> int:
 
 if __name__ == "__main__":
     sys.exit(run_print() if "--print" in sys.argv else run_gui())
+
