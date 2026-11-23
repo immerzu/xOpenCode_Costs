@@ -1,0 +1,165 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<title>OpenCode Go</title>
+<style type="text/css">
+html, body {
+  margin: 0px;
+  padding: 0px;
+  width: 130px;
+  height: 114px;
+  overflow: hidden;
+  background-color: transparent;
+}
+</style>
+<script type="text/javascript">
+/* OpenCode-Go-Auslastung als Sidebar-Gadget.
+   Drei Werte: 5 Stunden, Woche, Monat (Prozent + Restzeit).
+   Quelle: https://opencode.ai/inference/go/v1/usage (Bearer-Key). */
+
+var KEY_REL = "\\.config\\opencode\\go-usage.key";
+var URL = "https://opencode.ai/inference/go/v1/usage";
+var CONSOLE_URL = "https://opencode.ai/console/org_01M849G7ER2E5P3E2B1B50D965/activity/overview";
+var REFRESH_MS = 5 * 60 * 1000;
+var ROWS = [
+  { key: "rolling", label: "5h" },
+  { key: "weekly",  label: "Woche" },
+  { key: "monthly", label: "Monat" }
+];
+
+var bg = null, dots = [], texts = [], busy = false;
+
+function log(msg) {
+  try {
+    var fso = new ActiveXObject("Scripting.FileSystemObject");
+    var f = fso.OpenTextFile(fso.GetSpecialFolder(2) + "\\opencodego.log", 8, true);
+    f.WriteLine(new Date().toTimeString().substring(0, 8) + " " + msg);
+    f.Close();
+  } catch (e) {}
+}
+
+function homeDir() {
+  try { return System.Environment.getEnvironmentVariable("USERPROFILE"); } catch (e) {}
+  try { return new ActiveXObject("WScript.Shell").ExpandEnvironmentStrings("%USERPROFILE%"); } catch (e) {}
+  return "";
+}
+
+function trim(s) { return String(s).replace(/^\s+|\s+$/g, ""); }
+
+function readKey() {
+  try {
+    var fso = new ActiveXObject("Scripting.FileSystemObject");
+    var p = homeDir() + KEY_REL;
+    if (!fso.FileExists(p)) return null;
+    var f = fso.OpenTextFile(p, 1, false);
+    var t = trim(f.ReadAll());
+    f.Close();
+    t = t.replace(/^["']|["']$/g, "");
+    return t.length > 20 ? t : null;
+  } catch (e) { log("readKey: " + e.message); }
+  return null;
+}
+
+function getUsage(key) {
+  var req = null, useWinHttp = false;
+  try { req = new ActiveXObject("WinHttp.WinHttpRequest.5.1"); useWinHttp = true; } catch (e) {}
+  if (!req) { try { req = new ActiveXObject("MSXML2.XMLHTTP"); } catch (e) { return null; } }
+  try {
+    req.Open("GET", URL, false);
+    req.SetRequestHeader("Authorization", "Bearer " + key);
+    req.SetRequestHeader("Accept", "application/json");
+    try { req.SetRequestHeader("User-Agent", "go-usage-gadget/1.0"); } catch (e) {}
+    req.Send();
+    var status = useWinHttp ? req.Status : req.status;
+    var body = useWinHttp ? req.ResponseText : req.responseText;
+    if (status !== 200) { log("http " + status); return null; }
+    return eval("(" + body + ")");
+  } catch (e) { log("getUsage: " + e.message); return null; }
+}
+
+function pad2(n) { return n < 10 ? "0" + n : "" + n; }
+
+function remaining(iso) {
+  if (!iso) return "";
+  try {
+    var t = Date.parse(iso);
+    if (isNaN(t)) return "";
+    var s = Math.floor((t - (new Date()).getTime()) / 1000);
+    if (s <= 0) return "jetzt";
+    var d = Math.floor(s / 86400); s -= d * 86400;
+    var h = Math.floor(s / 3600); s -= h * 3600;
+    var m = Math.floor(s / 60);
+    if (d > 0) return d + "d" + h + "h";
+    if (h > 0) return h + "h" + pad2(m) + "m";
+    return m + "m";
+  } catch (e) { return ""; }
+}
+
+function colorFor(pct, limited) {
+  if (limited || pct >= 90) return "Red";
+  if (pct >= 70) return "Gold";
+  return "LimeGreen";
+}
+
+function ensureObjects() {
+  if (bg) return true;
+  bg = document.getElementById("bg");
+  if (!bg) return false;
+  var y = [14, 48, 82];
+  for (var i = 0; i < ROWS.length; i++) {
+    dots[i] = bg.addTextObject("\u25CF", "Tahoma", 9, "LimeGreen", 7, y[i]);
+    texts[i] = bg.addTextObject("", "Segoe UI Semibold", 9, "White", 20, y[i]);
+  }
+  return true;
+}
+
+function render(data) {
+  if (!ensureObjects()) return;
+  var usage = (data && data.usage) || data || {};
+  for (var i = 0; i < ROWS.length; i++) {
+    var item = usage[ROWS[i].key] || {};
+    var pct = Number(item.percent) || 0;
+    var limited = String(item.status) === "rate-limited";
+    try { texts[i].value = ROWS[i].label + " " + pct + "% \u00B7 " + remaining(item.resetsAt); } catch (e) { log("text: " + e.message); }
+    try { dots[i].color = colorFor(pct, limited); } catch (e) { log("color: " + e.message); }
+  }
+}
+
+function refresh() {
+  if (busy) return;
+  busy = true;
+  try {
+    var key = readKey();
+    if (!key) { render({ usage: {} }); return; }
+    var data = getUsage(key);
+    if (data) render(data);
+  } catch (e) {
+    log("refresh: " + e.message);
+  } finally {
+    busy = false;
+  }
+}
+
+function openConsole() {
+  try {
+    new ActiveXObject("WScript.Shell").Run('cmd /c start "" "' + CONSOLE_URL + '"', 0, false);
+    return;
+  } catch (e) {}
+  try { System.Shell.execute(CONSOLE_URL); } catch (e) {}
+}
+
+function onClick() {
+  refresh();
+  openConsole();
+}
+
+function init() {
+  ensureObjects();
+  render({ usage: {} });
+  refresh();
+  setInterval(refresh, REFRESH_MS);
+}
+</script>
+</head>
+<body onload="init()" onclick="onClick()"><g:background id="bg" src="src/background.png"></g:background></body>
+</html>
