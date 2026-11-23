@@ -24,13 +24,12 @@ from pathlib import Path
 
 API_URL = "https://opencode.ai/inference/go/v1/usage"
 REFRESH_SECONDS = 60
-USER_AGENT = "go-usage-widget/1.1"
+USER_AGENT = "go-usage-widget/1.2"
 DB_PATH = Path(os.path.expanduser(r"~\.local\share\opencode\opencode.db"))
 
 BG = "#2e2e2e"
 BORDER = "#454545"
 FG = "#f2f2f2"
-MUTED = "#c8c8c8"
 GREEN, YELLOW, RED = "#3fbf5f", "#e0b84c", "#e05252"
 
 ROWS = (("rolling", "5 h"), ("weekly", "Woche"), ("monthly", "Monat"))
@@ -71,7 +70,7 @@ def read_key() -> str | None:
 def fetch_usage() -> dict:
     key = read_key()
     if not key:
-        raise RuntimeError("Kein Go-Key gefunden")
+        raise RuntimeError("Kein Go-Key")
 
     req = urllib.request.Request(
         API_URL,
@@ -124,8 +123,8 @@ def color_for(pct: float, limited: bool) -> str:
 def run_gui() -> None:
     import tkinter as tk
 
-    W, H = 200, 112
-    PAD = 8
+    W, H = 140, 84
+    PAD = 6
     ROW_H = (H - 2 * PAD) / 3
 
     root = tk.Tk()
@@ -148,22 +147,20 @@ def run_gui() -> None:
         ]
         return canvas.create_polygon(pts, smooth=True, **kw)
 
-    rounded(1, 1, W - 1, H - 1, 12, fill=BG, outline=BORDER, width=1)
+    rounded(1, 1, W - 1, H - 1, 10, fill=BG, outline=BORDER, width=1)
 
     dots = []
     texts = []
     for index, (_, label) in enumerate(ROWS):
         cy = PAD + ROW_H * index + ROW_H / 2
-        dots.append(canvas.create_oval(11, cy - 4, 19, cy + 4,
+        dots.append(canvas.create_oval(8, cy - 3, 14, cy + 3,
                                        fill=GREEN, outline=""))
         texts.append(
             canvas.create_text(
-                25, cy, anchor="w", fill=FG, font=("Segoe UI", 9),
+                17, cy, anchor="w", fill=FG, font=("Segoe UI", 7),
                 text=f"{label}  …",
             )
         )
-
-    status = canvas.create_text(W - 8, H - 6, anchor="e", fill=MUTED, font=("Segoe UI", 6), text="")
 
     def apply(usage: dict) -> None:
         for index, (key, label) in enumerate(ROWS):
@@ -173,22 +170,23 @@ def run_gui() -> None:
             canvas.itemconfigure(dots[index], fill=color_for(pct, limited))
             canvas.itemconfigure(
                 texts[index],
+                fill=FG,
                 text=f"{label}  {pct:.0f} %  ·  {remaining(item.get('resetsAt'))}",
             )
+
+    def schedule() -> None:
+        root.after(REFRESH_SECONDS * 1000,
+                   lambda: threading.Thread(target=refresh, daemon=True).start())
 
     def refresh() -> None:
         try:
             usage = fetch_usage()
         except Exception as exc:  # noqa: BLE001 - Anzeige soll den Grund zeigen
-            canvas.itemconfigure(status, text=f"Fehler: {exc}", fill=RED)
-            root.after(REFRESH_SECONDS * 1000, lambda: threading.Thread(
-                target=refresh, daemon=True).start())
+            canvas.itemconfigure(texts[0], text=f"Fehler: {exc}", fill=RED)
+            schedule()
             return
         apply(usage)
-        canvas.itemconfigure(status,
-                             text=f"Stand {time.strftime('%H:%M')}", fill=MUTED)
-        root.after(REFRESH_SECONDS * 1000, lambda: threading.Thread(
-            target=refresh, daemon=True).start())
+        schedule()
 
     # Ziehen mit der Maus
     offset = {"x": 0, "y": 0}
@@ -206,8 +204,8 @@ def run_gui() -> None:
     # Rechtsklick: aktualisieren / beenden
     menu = tk.Menu(root, tearoff=0)
     menu.add_command(label="Aktualisieren",
-                     command=lambda: threading.Thread(
-                         target=refresh, daemon=True).start())
+                     command=lambda: threading.Thread(target=refresh,
+                                                      daemon=True).start())
     menu.add_command(label="Beenden", command=root.destroy)
 
     def popup(event):
@@ -240,6 +238,3 @@ def run_print() -> int:
 
 if __name__ == "__main__":
     sys.exit(run_print() if "--print" in sys.argv else run_gui())
-
-
-
