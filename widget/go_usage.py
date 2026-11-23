@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
-"""Go-Usage-Widget: zeigt die drei OpenCode-Go-Limits (5 h, Woche, Monat).
+"""Go-Usage-Widget: dunkle Pille mit den drei OpenCode-Go-Limits.
 
 Datenquelle: GET https://opencode.ai/inference/go/v1/usage
-Der API-Key wird aus der OpenCode-Datenbank gelesen (Integration "opencode-go")
-oder aus der Umgebungsvariable OPENCODE_GO_KEY. Er wird nie ausgegeben.
+Key aus ~\\.config\\opencode\\go-usage.key, Env OPENCODE_GO_KEY oder OpenCode-DB.
 
 Aufruf:
-    python go_usage.py            # Fenster
-    python go_usage.py --print    # Werte in der Konsole (Test)
+    python go_usage.py            # Pille (ohne Titelleiste)
+    python go_usage.py --print    # Werte in der Konsole
 """
 
 from __future__ import annotations
@@ -25,14 +24,21 @@ from pathlib import Path
 
 API_URL = "https://opencode.ai/inference/go/v1/usage"
 REFRESH_SECONDS = 60
-USER_AGENT = "go-usage-widget/1.0"
+USER_AGENT = "go-usage-widget/1.1"
 DB_PATH = Path(os.path.expanduser(r"~\.local\share\opencode\opencode.db"))
+
+BG = "#2e2e2e"
+BORDER = "#454545"
+FG = "#f2f2f2"
+MUTED = "#c8c8c8"
+GREEN, YELLOW, RED = "#3fbf5f", "#e0b84c", "#e05252"
+
+ROWS = (("rolling", "5 h"), ("weekly", "Woche"), ("monthly", "Monat"))
 
 
 # ---------------------------------------------------------------- Key
 
 def read_key() -> str | None:
-    """Liest den Go-Key. Reihenfolge: Env, Datei, OpenCode-DB."""
     env = os.environ.get("OPENCODE_GO_KEY", "").strip()
     if env:
         return env
@@ -45,7 +51,6 @@ def read_key() -> str | None:
 
     if not DB_PATH.is_file():
         return None
-
     try:
         con = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True, timeout=2)
         try:
@@ -81,13 +86,9 @@ def fetch_usage() -> dict:
             data = json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         if exc.code == 401:
-            raise RuntimeError(
-                "Key abgelehnt (401) — Go-API-Key in "
-                r"~\.config\opencode\go-usage.key legen"
-            ) from exc
+            raise RuntimeError("Key abgelehnt (401)") from exc
         raise
-    usage = data.get("usage") or data
-    return usage
+    return data.get("usage") or data
 
 
 def remaining(iso: str | None) -> str:
@@ -104,17 +105,18 @@ def remaining(iso: str | None) -> str:
     hours, rest = divmod(rest, 3600)
     minutes = rest // 60
     if days:
-        return f"in {days}d {hours}h"
+        return f"{days}d {hours}h"
     if hours:
-        return f"in {hours}h {minutes}m"
-    return f"in {minutes}m"
+        return f"{hours}h {minutes}m"
+    return f"{minutes}m"
 
 
-ROWS = (
-    ("rolling", "5 Stunden"),
-    ("weekly", "Woche"),
-    ("monthly", "Monat"),
-)
+def color_for(pct: float, limited: bool) -> str:
+    if limited or pct >= 90:
+        return RED
+    if pct >= 70:
+        return YELLOW
+    return GREEN
 
 
 # ---------------------------------------------------------------- GUI
@@ -122,76 +124,103 @@ ROWS = (
 def run_gui() -> None:
     import tkinter as tk
 
-    bg, fg, muted = "#121212", "#f2f2f2", "#8a8a8a"
-    bar_bg = "#2a2a2a"
+    W, H = 290, 112
+    PAD = 11
+    ROW_H = (H - 2 * PAD) / 3
 
     root = tk.Tk()
-    root.title("OpenCode Go")
-    root.configure(bg=bg)
-    root.geometry("330x150")
-    root.minsize(300, 140)
-    root.attributes("-topmost", False)
+    root.overrideredirect(True)
+    root.configure(bg=BG)
+    root.geometry(f"{W}x{H}+80+80")
+    try:
+        root.attributes("-alpha", 0.96)
+    except tk.TclError:
+        pass
 
-    status = tk.Label(root, text="lade …", bg=bg, fg=muted, anchor="w",
-                      font=("Segoe UI", 8))
-    status.pack(fill="x", padx=12, pady=(8, 0))
+    canvas = tk.Canvas(root, width=W, height=H, bg=BG, highlightthickness=0, bd=0)
+    canvas.pack(fill="both", expand=True)
 
-    widgets: dict[str, dict] = {}
-    for key, label in ROWS:
-        frame = tk.Frame(root, bg=bg)
-        frame.pack(fill="x", padx=12, pady=(6, 0))
+    def rounded(x1, y1, x2, y2, r, **kw):
+        pts = [
+            x1 + r, y1, x2 - r, y1, x2, y1, x2, y1 + r,
+            x2, y2 - r, x2, y2, x2 - r, y2, x1 + r, y2,
+            x1, y2, x1, y2 - r, x1, y1 + r, x1, y1,
+        ]
+        return canvas.create_polygon(pts, smooth=True, **kw)
 
-        caption = tk.Label(frame, text=label, bg=bg, fg=fg, anchor="w",
-                           font=("Segoe UI", 9))
-        caption.pack(fill="x")
+    rounded(1, 1, W - 1, H - 1, 12, fill=BG, outline=BORDER, width=1)
 
-        canvas = tk.Canvas(frame, height=8, bg=bar_bg, highlightthickness=0, bd=0)
-        canvas.pack(fill="x", pady=(3, 0))
+    dots = []
+    texts = []
+    for index, (_, label) in enumerate(ROWS):
+        cy = PAD + ROW_H * index + ROW_H / 2
+        dots.append(canvas.create_oval(14, cy - 4, 22, cy + 4,
+                                       fill=GREEN, outline=""))
+        texts.append(
+            canvas.create_text(
+                30, cy, anchor="w", fill=FG, font=("Segoe UI", 10),
+                text=f"{label}  …",
+            )
+        )
 
-        detail = tk.Label(frame, text="", bg=bg, fg=muted, anchor="w",
-                          font=("Segoe UI", 8))
-        detail.pack(fill="x")
-
-        bar = canvas.create_rectangle(0, 0, 0, 8, fill="#4caf50", width=0)
-        widgets[key] = {"canvas": canvas, "bar": bar, "detail": detail, "pct": 0.0}
-
-    def color_for(pct: float, limited: bool) -> str:
-        if limited or pct >= 90:
-            return "#e05252"
-        if pct >= 70:
-            return "#e0b84c"
-        return "#4caf50"
+    status = canvas.create_text(14, H - 9, anchor="w", fill=MUTED,
+                                font=("Segoe UI", 7), text="")
 
     def apply(usage: dict) -> None:
-        for key, _ in ROWS:
-            entry = widgets[key]
+        for index, (key, label) in enumerate(ROWS):
             item = usage.get(key) or {}
             pct = float(item.get("percent") or 0)
             limited = item.get("status") == "rate-limited"
-            entry["pct"] = pct
-            entry["detail"].configure(
-                text=f"{pct:.0f} % genutzt · frei {remaining(item.get('resetsAt'))}",
+            canvas.itemconfigure(dots[index], fill=color_for(pct, limited))
+            canvas.itemconfigure(
+                texts[index],
+                text=f"{label}  {pct:.0f} %  ·  {remaining(item.get('resetsAt'))}",
             )
-            canvas = entry["canvas"]
-            width = max(canvas.winfo_width(), 1)
-            canvas.coords(entry["bar"], 0, 0, width * min(pct, 100) / 100.0, 8)
-            canvas.itemconfigure(entry["bar"], fill=color_for(pct, limited))
 
     def refresh() -> None:
         try:
             usage = fetch_usage()
-        except (urllib.error.URLError, TimeoutError, RuntimeError, ValueError) as exc:
-            status.configure(text=f"Fehler: {exc}", fg="#e05252")
-            root.after(REFRESH_SECONDS * 1000, refresh)
+        except Exception as exc:  # noqa: BLE001 - Anzeige soll den Grund zeigen
+            canvas.itemconfigure(status, text=f"Fehler: {exc}", fill=RED)
+            root.after(REFRESH_SECONDS * 1000, lambda: threading.Thread(
+                target=refresh, daemon=True).start())
             return
         apply(usage)
-        status.configure(text=f"Stand {time.strftime('%H:%M:%S')}", fg=muted)
-        root.after(REFRESH_SECONDS * 1000, refresh)
+        canvas.itemconfigure(status,
+                             text=f"Stand {time.strftime('%H:%M')}", fill=MUTED)
+        root.after(REFRESH_SECONDS * 1000, lambda: threading.Thread(
+            target=refresh, daemon=True).start())
 
-    def start() -> None:
-        threading.Thread(target=refresh, daemon=True).start()
+    # Ziehen mit der Maus
+    offset = {"x": 0, "y": 0}
 
-    root.after(200, start)
+    def press(event):
+        offset["x"], offset["y"] = event.x, event.y
+
+    def drag(event):
+        root.geometry(f"+{event.x_root - offset['x']}+{event.y_root - offset['y']}")
+
+    for widget in (root, canvas):
+        widget.bind("<Button-1>", press)
+        widget.bind("<B1-Motion>", drag)
+
+    # Rechtsklick: aktualisieren / beenden
+    menu = tk.Menu(root, tearoff=0)
+    menu.add_command(label="Aktualisieren",
+                     command=lambda: threading.Thread(
+                         target=refresh, daemon=True).start())
+    menu.add_command(label="Beenden", command=root.destroy)
+
+    def popup(event):
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
+
+    for widget in (root, canvas):
+        widget.bind("<Button-3>", popup)
+
+    threading.Thread(target=refresh, daemon=True).start()
     root.mainloop()
 
 
@@ -200,7 +229,7 @@ def run_gui() -> None:
 def run_print() -> int:
     try:
         usage = fetch_usage()
-    except Exception as exc:  # noqa: BLE001 - CLI soll die Ursache zeigen
+    except Exception as exc:  # noqa: BLE001
         print(f"FEHLER: {exc}")
         return 1
     for key, label in ROWS:
@@ -212,3 +241,4 @@ def run_print() -> int:
 
 if __name__ == "__main__":
     sys.exit(run_print() if "--print" in sys.argv else run_gui())
+
