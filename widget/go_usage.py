@@ -19,6 +19,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+import webbrowser
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -34,6 +35,9 @@ FG = "#f2f2f2"
 GREEN, YELLOW, RED = "#3fbf5f", "#e0b84c", "#e05252"
 
 ROWS = (("rolling", "5h"), ("weekly", "Woche"), ("monthly", "Monat"))
+
+CONSOLE_URL = ("https://opencode.ai/console/"
+               "org_01M849G7ER2E5P3E2B1B50D965/activity/overview")
 
 
 def enable_dpi_awareness() -> None:
@@ -207,17 +211,26 @@ def run_gui() -> None:
         apply(usage)
         schedule()
 
-    offset = {"x": 0, "y": 0}
+    drag_state = {"x": 0, "y": 0, "moved": False}
 
     def press(event):
-        offset["x"], offset["y"] = event.x, event.y
+        drag_state.update(x=event.x, y=event.y, moved=False)
 
     def drag(event):
-        root.geometry(f"+{event.x_root - offset['x']}+{event.y_root - offset['y']}")
+        if abs(event.x - drag_state["x"]) + abs(event.y - drag_state["y"]) > 4:
+            drag_state["moved"] = True
+        if drag_state["moved"]:
+            root.geometry(
+                f"+{event.x_root - drag_state['x']}+{event.y_root - drag_state['y']}")
+
+    def release(event):
+        if not drag_state["moved"]:
+            webbrowser.open(CONSOLE_URL)
 
     for widget in (root, canvas):
         widget.bind("<Button-1>", press)
         widget.bind("<B1-Motion>", drag)
+        widget.bind("<ButtonRelease-1>", release)
 
     menu = tk.Menu(root, tearoff=0)
     menu.add_command(label="Aktualisieren",
@@ -255,5 +268,6 @@ def run_print() -> int:
 
 if __name__ == "__main__":
     sys.exit(run_print() if "--print" in sys.argv else run_gui())
+
 
 
