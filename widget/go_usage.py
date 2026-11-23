@@ -124,8 +124,8 @@ def color_for(pct: float, limited: bool) -> str:
 def run_gui() -> None:
     import tkinter as tk
 
-    W, H = 290, 112
-    PAD = 11
+    W, H = 200, 112
+    PAD = 8
     ROW_H = (H - 2 * PAD) / 3
 
     root = tk.Tk()
@@ -154,17 +154,16 @@ def run_gui() -> None:
     texts = []
     for index, (_, label) in enumerate(ROWS):
         cy = PAD + ROW_H * index + ROW_H / 2
-        dots.append(canvas.create_oval(14, cy - 4, 22, cy + 4,
+        dots.append(canvas.create_oval(11, cy - 4, 19, cy + 4,
                                        fill=GREEN, outline=""))
         texts.append(
             canvas.create_text(
-                30, cy, anchor="w", fill=FG, font=("Segoe UI", 10),
+                25, cy, anchor="w", fill=FG, font=("Segoe UI", 9),
                 text=f"{label}  …",
             )
         )
 
-    status = canvas.create_text(14, H - 9, anchor="w", fill=MUTED,
-                                font=("Segoe UI", 7), text="")
+    status = canvas.create_text(W - 8, H - 6, anchor="e", fill=MUTED, font=("Segoe UI", 6), text="")
 
     def apply(usage: dict) -> None:
         for index, (key, label) in enumerate(ROWS):
@@ -241,4 +240,6 @@ def run_print() -> int:
 
 if __name__ == "__main__":
     sys.exit(run_print() if "--print" in sys.argv else run_gui())
+
+
 
