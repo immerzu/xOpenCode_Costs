@@ -5,7 +5,7 @@ Datenquelle: GET https://opencode.ai/inference/go/v1/usage
 Key aus ~\\.config\\opencode\\go-usage.key, Env OPENCODE_GO_KEY oder OpenCode-DB.
 
 Aufruf:
-    python go_usage.py            # Pille (ohne Titelleiste)
+    python go_usage.py            # Pille (ohne Titelleiste, runde Ecken)
     python go_usage.py --print    # Werte in der Konsole
 """
 
@@ -24,15 +24,26 @@ from pathlib import Path
 
 API_URL = "https://opencode.ai/inference/go/v1/usage"
 REFRESH_SECONDS = 60
-USER_AGENT = "go-usage-widget/1.2"
+USER_AGENT = "go-usage-widget/1.4"
 DB_PATH = Path(os.path.expanduser(r"~\.local\share\opencode\opencode.db"))
 
+CLEAR = "#010203"
 BG = "#2e2e2e"
 BORDER = "#454545"
 FG = "#f2f2f2"
 GREEN, YELLOW, RED = "#3fbf5f", "#e0b84c", "#e05252"
 
-ROWS = (("rolling", "5 h"), ("weekly", "Woche"), ("monthly", "Monat"))
+ROWS = (("rolling", "5h"), ("weekly", "Woche"), ("monthly", "Monat"))
+
+
+def enable_dpi_awareness() -> None:
+    """Scharfe Schrift: ohne DPI-Awareness skaliert Windows das Fenster weich."""
+    try:
+        import ctypes
+
+        ctypes.windll.shcore.SetProcessDpiAwareness(1)
+    except Exception:  # noqa: BLE001 - aeltere Systeme
+        pass
 
 
 # ---------------------------------------------------------------- Key
@@ -104,9 +115,9 @@ def remaining(iso: str | None) -> str:
     hours, rest = divmod(rest, 3600)
     minutes = rest // 60
     if days:
-        return f"{days}d {hours}h"
+        return f"{days}d{hours}h"
     if hours:
-        return f"{hours}h {minutes}m"
+        return f"{hours}h{minutes:02d}m"
     return f"{minutes}m"
 
 
@@ -123,42 +134,50 @@ def color_for(pct: float, limited: bool) -> str:
 def run_gui() -> None:
     import tkinter as tk
 
-    W, H = 130, 90
-    PAD = 8
+    enable_dpi_awareness()
+
+    W, H = 227, 114
+    PAD = 12
     ROW_H = (H - 2 * PAD) / 3
 
     root = tk.Tk()
     root.overrideredirect(True)
-    root.configure(bg=BG)
+    root.configure(bg=CLEAR)
     root.geometry(f"{W}x{H}+80+80")
     try:
-        root.attributes("-alpha", 0.96)
+        root.attributes("-transparentcolor", CLEAR)
     except tk.TclError:
-        pass
+        root.configure(bg=BG)
 
-    canvas = tk.Canvas(root, width=W, height=H, bg=BG, highlightthickness=0, bd=0)
+    canvas = tk.Canvas(root, width=W, height=H, bg=CLEAR,
+                       highlightthickness=0, bd=0)
     canvas.pack(fill="both", expand=True)
 
+    # Abgerundetes Rechteck aus Kreisbögen + zwei Rechtecken (saubere Kanten).
     def rounded(x1, y1, x2, y2, r, **kw):
-        pts = [
-            x1 + r, y1, x2 - r, y1, x2, y1, x2, y1 + r,
-            x2, y2 - r, x2, y2, x2 - r, y2, x1 + r, y2,
-            x1, y2, x1, y2 - r, x1, y1 + r, x1, y1,
-        ]
-        return canvas.create_polygon(pts, smooth=True, **kw)
+        canvas.create_arc(x1, y1, x1 + 2 * r, y1 + 2 * r, start=90, extent=90,
+                          style="pieslice", outline="", **kw)
+        canvas.create_arc(x2 - 2 * r, y1, x2, y1 + 2 * r, start=0, extent=90,
+                          style="pieslice", outline="", **kw)
+        canvas.create_arc(x1, y2 - 2 * r, x1 + 2 * r, y2, start=180, extent=90,
+                          style="pieslice", outline="", **kw)
+        canvas.create_arc(x2 - 2 * r, y2 - 2 * r, x2, y2, start=270, extent=90,
+                          style="pieslice", outline="", **kw)
+        canvas.create_rectangle(x1 + r, y1, x2 - r, y2, outline="", **kw)
+        canvas.create_rectangle(x1, y1 + r, x2, y2 - r, outline="", **kw)
 
-    rounded(1, 1, W - 1, H - 1, 10, fill=BG, outline=BORDER, width=1)
+    rounded(1, 1, W - 1, H - 1, 20, fill=BG)
 
     dots = []
     texts = []
     for index, (_, label) in enumerate(ROWS):
         cy = PAD + ROW_H * index + ROW_H / 2
-        dots.append(canvas.create_oval(8, cy - 3, 14, cy + 3,
+        dots.append(canvas.create_oval(13, cy - 5, 23, cy + 5,
                                        fill=GREEN, outline=""))
         texts.append(
             canvas.create_text(
-                17, cy, anchor="w", fill=FG, font=("Segoe UI", 7),
-                text=f"{label}  …",
+                28, cy, anchor="w", fill=FG, font=("Segoe UI Semibold", 9),
+                text=f"{label} …",
             )
         )
 
@@ -171,7 +190,7 @@ def run_gui() -> None:
             canvas.itemconfigure(
                 texts[index],
                 fill=FG,
-                text=f"{label}  {pct:.0f} %  ·  {remaining(item.get('resetsAt'))}",
+                text=f"{label} {pct:.0f}% · {remaining(item.get('resetsAt'))}",
             )
 
     def schedule() -> None:
@@ -188,7 +207,6 @@ def run_gui() -> None:
         apply(usage)
         schedule()
 
-    # Ziehen mit der Maus
     offset = {"x": 0, "y": 0}
 
     def press(event):
@@ -201,7 +219,6 @@ def run_gui() -> None:
         widget.bind("<Button-1>", press)
         widget.bind("<B1-Motion>", drag)
 
-    # Rechtsklick: aktualisieren / beenden
     menu = tk.Menu(root, tearoff=0)
     menu.add_command(label="Aktualisieren",
                      command=lambda: threading.Thread(target=refresh,
@@ -238,4 +255,5 @@ def run_print() -> int:
 
 if __name__ == "__main__":
     sys.exit(run_print() if "--print" in sys.argv else run_gui())
+
 
