@@ -24,7 +24,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 API_URL = "https://opencode.ai/inference/go/v1/usage"
-REFRESH_SECONDS = 60
+REFRESH_SECONDS = 300
 USER_AGENT = "go-usage-widget/1.4"
 DB_PATH = Path(os.path.expanduser(r"~\.local\share\opencode\opencode.db"))
 
@@ -268,6 +268,7 @@ def run_print() -> int:
 
 if __name__ == "__main__":
     sys.exit(run_print() if "--print" in sys.argv else run_gui())
+
 
 
 
