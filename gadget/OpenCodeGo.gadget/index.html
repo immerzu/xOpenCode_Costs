@@ -108,9 +108,9 @@ function ensureObjects() {
   var y = [3, 25, 47];
   for (var i = 0; i < ROWS.length; i++) {
     dots[i]   = bg.addTextObject("\u25CF", "Tahoma", 8, "LimeGreen", 7, y[i] + 3);
-    labels[i] = bg.addTextObject(ROWS[i].label, "Segoe UI Semibold", 9, "White", 19, y[i] + 3);
-    pcts[i]   = bg.addTextObject("0%", "Segoe UI Semibold", 13, "White", 58, y[i]);
-    rests[i]  = bg.addTextObject("", "Segoe UI Semibold", 9, "White", 92, y[i] + 3);
+    labels[i] = bg.addTextObject(ROWS[i].label, "Segoe UI Semibold", 10, "White", 19, y[i] + 2);
+    pcts[i]   = bg.addTextObject("0%", "Segoe UI Semibold", 13, "White", 56, y[i]);
+    rests[i]  = bg.addTextObject("", "Segoe UI Semibold", 9, "White", 88, y[i] + 3);
   }
   return true;
 }
@@ -165,4 +165,5 @@ function init() {
 </head>
 <body onload="init()" onclick="onClick()"><g:background id="bg" src="src/background.png"></g:background></body>
 </html>
+
 
