@@ -17,19 +17,24 @@ Zwei **private** Dashboard-Endpunkte der DeepSeek-Platform-Web-Session:
 Authentifizierung ist der **Login-Token der Platform-Web-Session** (`localStorage.userToken`), nicht der
 API-Schlüssel: mit dem API-Schlüssel antworten beide Endpunkte `code 40003 "invalid token"`.
 
-## Token hinterlegen (einmalig)
+## Token und Schlüssel (seit 24.11.2026 automatisch)
 
-1. `platform.deepseek.com` im Browser öffnen und angemeldet sein.
-2. Konsole (F12) und dort ausführen: `localStorage.getItem('userToken')`
-3. Den ausgegebenen Wert in **eine Zeile** der Datei
-   `C:\Users\lolo\.config\opencode\secrets\deepseek-platform-token` einsetzen
-   (`{"value":"…"}` oder reiner Token, beides wird erkannt; `#`-Zeilen sind Kommentar).
-4. OpenCode Desktop neu starten oder Fenster neu laden.
+Beide Gadgets holen ihre Zugangsdaten selbst; von Hand eintragen ist nur noch der Notfallweg.
 
-Läuft der Token ab, zeigt das Badge `🔴 Token nötig`. Dann Schritt 2–3 wiederholen.
+| Datei | Inhalt | Quelle | Skript |
+|---|---|---|---|
+| `~\.config\opencode\secrets\deepseek-platform-token` | DeepSeek-Web-Session-Token | `localStorage.userToken` im Browser | `sync-token.ps1` |
+| `~\.config\opencode\go-usage.key` | OpenCode-Go-API-Schlüssel | `opencode.db`, Tabelle `credential`, `integration_id='opencode-go'` | `sync-key.py` |
 
-**Der Token gehört nie ins Repo.** Die Datei liegt außerhalb des Projekts, ihre Zugriffsrechte sind auf
-das Benutzerkonto und SYSTEM beschränkt.
+Beide Skripte laufen nur, wenn die Datei fehlt oder der Server den Wert ablehnt (`40002`/`40003` bzw. HTTP 403).
+`sync-token.ps1` liest die Local-Storage-LevelDB der Browser-Profile mit `FileShare.ReadWrite`;
+`sync-key.py` liest die SQLite-Datenbank read-only und prüft den Schlüssel gegen
+`https://opencode.ai/inference/go/v1/usage` (dort ist ein **User-Agent** Pflicht, ohne ihn: 403).
+
+Fallback von Hand: `platform.deepseek.com` öffnen, `localStorage.getItem('userToken')` ausführen und den Wert
+in die Token-Datei schreiben. Läuft die Web-Session ab, hilft nur eine neue Anmeldung im Browser.
+
+**Zugangsdaten gehören nie ins Repo.** Die Dateien liegen außerhalb des Projekts.
 
 ## Anzeige
 
@@ -41,6 +46,39 @@ das Benutzerkonto und SYSTEM beschränkt.
 - Aktualisierung alle 5 Minuten.
 
 Die Kostenanzeige der Sitzung oben rechts bleibt unverändert; das Badge steht daneben.
+
+## Gadgets (Windows Sidebar)
+
+| Gadget | Anzeige | Dateien |
+|---|---|---|
+| `DeepSeekCosts.gadget` | Guthaben + Tageskosten DeepSeek | `xDSH_Costs\gadget\DeepSeekCosts.gadget` |
+| `OpenCodeGo.gadget` | 5 h / Woche / Monat, Credits + Kosten, Stunden-Diagramm | `xOpenCode_Costs\gadget\OpenCodeGo.gadget` |
+
+`OpenCodeGo.gadget` ist 130 × 136 px (Logikmaß) und besteht aus vier Blöcken: drei Auslastungszeilen,
+einer Zeile **Credits** (links) und **Kosten** (rechts, Tageswert), dem Balkendiagramm der Stunden
+06–20 Uhr und darunter der Achse. Fährt man über einen Balken, erscheinen unter der Achse Uhrzeit und
+Betrag dieser Stunde; ohne Maus bleibt die Zeile leer.
+
+- `index.html` — Anzeige (ES3-JavaScript der Sidebar-Engine)
+- `chart.ps1` — holt die Stundenwerte und zeichnet `src\chartA.png` / `src\chartB.png` (abwechselnd,
+  weil die Sidebar Bilder cached) sowie `src\chart.json` mit den Summen
+- `sync-key.py` — holt den Go-Schlüssel aus `opencode.db` nach `~\.config\opencode\go-usage.key`
+- `make-backgrounds.ps1` — erzeugt die drei Hintergründe (normal/warn/alert) in der benötigten Höhe
+
+`src\chart*.png` und `src\chart.json` sind Laufzeit-Artefakte und werden nicht versioniert.
+
+Installiert unter `%LOCALAPPDATA%\Microsoft\Windows Sidebar\Gadgets\`. Sicherungen liegen als ZIP in
+`E:\Sicherheit\!Windows_11\Widget` (`DeepSeekCosts.gadget`, `OpenCodeGo.gadget`; ohne Datum, eine neue
+Sicherung überschreibt die vorige).
+
+Nach Änderungen an einer Gadget-Datei muss die Sidebar neu laden, sonst zeigt sie die alte Fassung aus
+dem Internet-Cache:
+
+```powershell
+Stop-Process -Name sidebar -Force
+RunDll32.exe InetCpl.cpl,ClearMyTracksByProcess 8
+Start-Process 'C:\Program Files\Windows Sidebar\sidebar.exe'
+```
 
 ## Bauen
 

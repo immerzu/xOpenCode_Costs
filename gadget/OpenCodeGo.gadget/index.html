@@ -7,27 +7,100 @@ html, body {
   margin: 0px;
   padding: 0px;
   width: 130px;
-  height: 74px;
+  height: 136px;
   overflow: hidden;
   background-color: transparent;
 }
 </style>
 <script type="text/javascript">
 /* OpenCode-Go-Auslastung als Sidebar-Gadget.
-   Zeilenaufbau wie beim DeepSeek-Gadget: kleiner Text, grosse Zahl, kleiner Text.
-   Quelle: https://opencode.ai/inference/go/v1/usage (Bearer-Key). */
+   Zeilen 1-3: 5h / Woche / Monat in Prozent (https://opencode.ai/inference/go/v1/usage).
+   Zeile 4:    Credits (links) und Tageskosten "Kosten" (rechts), beide zentriert.
+   Quellen Zeile 4: /console/api/billing/status und /console/api/usage/summary.
+   Der Schluessel wird bei Bedarf aus dem OpenCode-Credential-Store geholt (sync-key.py). */
 
 var KEY_REL = "\\.config\\opencode\\go-usage.key";
-var URL = "https://opencode.ai/inference/go/v1/usage";
-var CONSOLE_URL = "https://opencode.ai/console/org_01M849G7ER2E5P3E2B1B50D965/activity/overview";
-var REFRESH_MS = 5 * 60 * 1000;
+var USAGE_URL = "https://opencode.ai/inference/go/v1/usage";
+var BILLING_URL = "https://opencode.ai/console/api/billing/status";
+var SUMMARY_URL = "https://opencode.ai/console/api/usage/summary";
+var HOURLY_URL = "https://opencode.ai/console/api/usage/cost-by-day";
+var ORG = "org_01M849G7ER2E5P3E2B1B50D965";
+var USER_ID = "user_01M849G7EBBXN0053BANANF5GH";
+var CONSOLE_URL = "https://opencode.ai/console/" + ORG + "/activity/overview";
+var REFRESH_MS = 60 * 1000;
 var ROWS = [
-  { key: "rolling", label: "5h" },
-  { key: "weekly",  label: "Woche" },
-  { key: "monthly", label: "Monat" }
+  { key: "rolling", label: "5h",    y: 3  },
+  { key: "weekly",  label: "Woche", y: 25 },
+  { key: "monthly", label: "Monat", y: 47 }
 ];
+var ROW4 = { labelY: 66, valueY: 77, leftCenter: 33, rightCenter: 97 };
+
+/* Gemessene Zeichenbreiten (Segoe UI Semibold 11 Pixel - die Sidebar deutet die
+   Groessenangabe als Pixel, nicht als Punkt). Damit sitzen die Betraege exakt
+   auf der Spaltenmitte. */
+var W11 = { "$": 6.11, "0": 6.11, "1": 4.43, "2": 6.11, "3": 6.11, "4": 6.34,
+            "5": 6.11, "6": 6.14, "7": 5.90, "8": 6.11, "9": 6.14, ".": 2.65,
+            "-": 6.11 };
+/* 8 Pixel: "Credits" 25,4 px, "Kosten" 24,9 px breit; Spaltenmitten 33 und 97.
+   Die Werte sind an einer Messung des laufenden Gadgets nachjustiert. */
+var LABEL_X = { credits: 20, cost: 84 };
+var MONEY_X = { credits: [18, 16], cost: [82, 79] };   /* [5-stellig, 6-stellig] */
+
+/* Stunden-Diagramm unten: echtes PNG, von chart.ps1 gezeichnet (24 Balken, 3 px breit).
+   Die Sidebar cached Bilder, deshalb wechseln zwei Dateien (chartA/chartB) pro Aktualisierung. */
+var CHART_IMG = { x: 5, y: 92, w: 120, h: 18 };
+var CHART_INFO_Y = 128;
+var AXIS_Y = 112;
+var AXIS_HOURS = [6, 8, 10, 12, 14, 16, 18, 20];
+var chartImg = null, chartInfo = null, chartFlip = false, axisLabels = [], hoverText = null;
+var hourData = [], hoverIdx = -1, hideTimer = null;
+
+/* Grobe Token-Anzeige: 1,2 M statt 1234567. */
+function fmtTokens(n) {
+  n = Number(n) || 0;
+  if (n >= 1000000) return (Math.round(n / 100000) / 10) + " M";
+  if (n >= 1000) return Math.round(n / 1000) + " k";
+  return String(n);
+}
+
+/* Welcher Balken liegt unter dem Mauszeiger? -1 = keiner. */
+function hoverAt(x, y) {
+  if (x < CHART_IMG.x || x > CHART_IMG.x + 120) return -1;
+  if (y < CHART_IMG.y - 2 || y > CHART_IMG.y + 24) return -1;
+  var idx = Math.floor((x - CHART_IMG.x) / 8);
+  return (idx >= 0 && idx < hourData.length) ? idx : -1;
+}
+
+function showHover(idx) {
+  var d = hourData[idx];
+  if (!d) return;
+  try { hoverText.value = d.h + " Uhr \u00b7 " + money(d.c); }
+  catch (e) { log("hover: " + e.message); }
+}
+
+function hideHover() {
+  /* Achtung: die Engine ignoriert einen leeren String, ein Leerzeichen leert das Feld. */
+  try { hoverText.value = " "; } catch (e) {}
+}
+function onMove(e) {
+  var ev = e || window.event;
+  if (!ev) return;
+  var idx = hoverAt(ev.clientX, ev.clientY);
+  if (idx < 0) {
+    if (hoverIdx >= 0) { hoverIdx = -1; hideHover(); }
+    return;
+  }
+  if (idx === hoverIdx) return;
+  hoverIdx = idx;
+  showHover(idx);
+}
 
 var bg = null, dots = [], labels = [], pcts = [], rests = [], busy = false;
+var lblCredits = null, lblCost = null;
+/* Die Sidebar-Textobjekte lassen ihre x-Position nach dem Anlegen nicht aendern
+   ("Objekt unterstuetzt diese Eigenschaft nicht"). Deshalb je Spalte zwei Objekte:
+   eins fuer 5- und eins fuer 6-stellige Betraege, jeweils exakt zentriert. */
+var moneyPair = null;
 
 function log(msg) {
   try {
@@ -60,24 +133,54 @@ function readKey() {
   return null;
 }
 
-function getUsage(key) {
+/* Holt den Go-Schluessel aus dem OpenCode-Credential-Store, wenn er fehlt oder
+   abgelehnt wird. Das Skript liegt neben dem Gadget und schreibt dieselbe Datei. */
+function syncKey() {
+  try {
+    var sh = new ActiveXObject("WScript.Shell");
+    var py = sh.ExpandEnvironmentStrings("%LOCALAPPDATA%") +
+             "\\Microsoft\\Windows Sidebar\\Gadgets\\OpenCodeGo.gadget\\sync-key.py";
+    sh.Run('cmd /c python "' + py + '"', 0, true);
+    log("sync-key: Aufruf beendet");
+    return true;
+  } catch (e) { log("sync-key: " + e.message); return false; }
+}
+
+function httpGet(url, key, org) {
   var req = null, useWinHttp = false;
   try { req = new ActiveXObject("WinHttp.WinHttpRequest.5.1"); useWinHttp = true; } catch (e) {}
   if (!req) { try { req = new ActiveXObject("MSXML2.XMLHTTP"); } catch (e) { return null; } }
   try {
-    req.Open("GET", URL, false);
+    req.Open("GET", url, false);
     req.SetRequestHeader("Authorization", "Bearer " + key);
     req.SetRequestHeader("Accept", "application/json");
-    try { req.SetRequestHeader("User-Agent", "go-usage-gadget/1.1"); } catch (e) {}
+    try { req.SetRequestHeader("User-Agent", "opencode-go-gadget/1.2"); } catch (e) {}
+    if (org) { try { req.SetRequestHeader("x-org-id", org); } catch (e) {} }
     req.Send();
     var status = useWinHttp ? req.Status : req.status;
     var body = useWinHttp ? req.ResponseText : req.responseText;
-    if (status !== 200) { log("http " + status); return null; }
+    if (status !== 200) { log("http " + status + " " + url); return null; }
     return eval("(" + body + ")");
-  } catch (e) { log("getUsage: " + e.message); return null; }
+  } catch (e) { log("httpGet: " + e.message); return null; }
 }
 
 function pad2(n) { return n < 10 ? "0" + n : "" + n; }
+
+/* "Today" der Console = Kalendertag ab lokal Mitternacht, als UTC-ISO. */
+function localMidnightIso() {
+  var d = new Date();
+  d.setHours(0, 0, 0, 0);
+  var u = new Date(d.getTime());
+  return u.getUTCFullYear() + "-" + pad2(u.getUTCMonth() + 1) + "-" + pad2(u.getUTCDate()) + "T" +
+         pad2(u.getUTCHours()) + ":" + pad2(u.getUTCMinutes()) + ":" + pad2(u.getUTCSeconds()) + ".000Z";
+}
+
+function moneyFromMicro(v) {
+  if (v === null || v === undefined) return "--";
+  var n = Number(v);
+  if (!isFinite(n)) return "--";
+  return "$" + (n / 100000000).toFixed(2);
+}
 
 function remaining(iso) {
   if (!iso) return "";
@@ -101,41 +204,153 @@ function colorFor(pct, limited) {
   return "LimeGreen";
 }
 
+/* Breitenschaetzung fuer die Betraege in Zeile 4 (nur zur Auswahl des Objekts). */
+function moneyWidth(text) {
+  var s = String(text), w = 0, c;
+  for (var i = 0; i < s.length; i++) {
+    c = s.charAt(i);
+    w += (W11[c] !== undefined) ? W11[c] : 8.14;
+  }
+  return w;
+}
+
+/* Setzt den Betrag in das passend zentrierte Objekt und leert das andere. */
+function setMoney(pair, text) {
+  var wide = moneyWidth(text) > 29;
+  try { pair[wide ? 1 : 0].value = text; } catch (e) { log("money setzen: " + e.message); }
+  try { pair[wide ? 0 : 1].value = ""; } catch (e) {}
+}
+
+/* Lokale Stunde eines ISO-Zeitstempels (z. B. 2026-11-24T08:00:00Z). */
+function hourOfDay(iso) {
+  var m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(String(iso));
+  if (!m) return -1;
+  var d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4]), Number(m[5])));
+  return d.getHours();
+}
+
+function money(v) {
+  if (v === null || v === undefined) return "--";
+  return "$" + Number(v).toFixed(2);
+}
+
+/* Ruft chart.ps1 auf: holt die Stundenwerte und zeichnet src\chartA/B.png. */
+function runChart() {
+  try {
+    var sh = new ActiveXObject("WScript.Shell");
+    var base = sh.ExpandEnvironmentStrings("%LOCALAPPDATA%") +
+               "\\Microsoft\\Windows Sidebar\\Gadgets\\OpenCodeGo.gadget";
+    var code = sh.Run('powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' +
+                      base + '\\chart.ps1"', 0, true);
+    log("chart.ps1 beendet, Exit " + code);
+    return code === 0;
+  } catch (e) { log("runChart: " + e.message); return false; }
+}
+
+/* Liest die Summen aus src\chart.json. */
+function readChartJson() {
+  try {
+    var fso = new ActiveXObject("Scripting.FileSystemObject");
+    var p = new ActiveXObject("WScript.Shell").ExpandEnvironmentStrings("%LOCALAPPDATA%") +
+            "\\Microsoft\\Windows Sidebar\\Gadgets\\OpenCodeGo.gadget\\src\\chart.json";
+    if (!fso.FileExists(p)) return null;
+    var f = fso.OpenTextFile(p, 1, false);
+    var t = f.ReadAll();
+    f.Close();
+    var d = eval("(" + t + ")");
+    hourData = (d && d.hours) ? d.hours : [];
+    return d;
+  } catch (e) { log("readChartJson: " + e.message); return null; }
+}
+
+/* Zeichnet Bild und Fusszeile neu. */
+function renderChart() {
+  if (!chartImg) return;
+  var ok = runChart();
+  var d = readChartJson();
+  if (ok) {
+    chartFlip = !chartFlip;
+    try { chartImg.src = chartFlip ? "src/chartB.png" : "src/chartA.png"; }
+    catch (e) { log("chart src: " + e.message); }
+  }
+  var text = "";
+  if (d && d.maxHour >= 0 && d.max > 0) text = "max " + d.maxHour + "h " + money(d.max);
+  log("stunden " + text);
+}
+
 function ensureObjects() {
   if (bg) return true;
   bg = document.getElementById("bg");
   if (!bg) return false;
-  var y = [3, 25, 47];
   for (var i = 0; i < ROWS.length; i++) {
-    dots[i]   = bg.addTextObject("\u25CF", "Tahoma", 8, "LimeGreen", 7, y[i] + 3);
-    labels[i] = bg.addTextObject(ROWS[i].label, "Segoe UI Semibold", 10, "White", 19, y[i] + 2);
-    pcts[i]   = bg.addTextObject("0%", "Segoe UI Semibold", 13, "White", 56, y[i]);
-    rests[i]  = bg.addTextObject("", "Segoe UI Semibold", 9, "White", 88, y[i] + 3);
+    var y = ROWS[i].y;
+    dots[i]   = bg.addTextObject("\u25CF", "Tahoma", 8, "LimeGreen", 7, y + 3);
+    labels[i] = bg.addTextObject(ROWS[i].label, "Segoe UI Semibold", 10, "White", 19, y + 2);
+    pcts[i]   = bg.addTextObject("0%", "Segoe UI Semibold", 13, "White", 56, y);
+    rests[i]  = bg.addTextObject("", "Segoe UI Semibold", 9, "White", 88, y + 3);
   }
+  lblCredits = bg.addTextObject("Credits", "Segoe UI Semibold", 8, "Silver", LABEL_X.credits, ROW4.labelY);
+  lblCost    = bg.addTextObject("Kosten", "Segoe UI Semibold", 8, "Silver", LABEL_X.cost, ROW4.labelY);
+      moneyPair = {
+    credits: [ bg.addTextObject("--", "Segoe UI Semibold", 11, "White", MONEY_X.credits[0], ROW4.valueY),
+               bg.addTextObject("",   "Segoe UI Semibold", 11, "White", MONEY_X.credits[1], ROW4.valueY) ],
+    cost:    [ bg.addTextObject("--", "Segoe UI Semibold", 11, "White", MONEY_X.cost[0], ROW4.valueY),
+               bg.addTextObject("",   "Segoe UI Semibold", 11, "White", MONEY_X.cost[1], ROW4.valueY) ]
+  };
+  chartImg  = bg.addImageObject("src/chartA.png", CHART_IMG.x, CHART_IMG.y);
+  hoverText = bg.addTextObject(" ", "Segoe UI Semibold", 9, "White", 5, 123);
+  axisLabels = [];
+  for (var a = 0; a < AXIS_HOURS.length; a++) {
+    var hh = AXIS_HOURS[a];
+    var label = (hh < 10 ? "0" + hh : "" + hh);
+    axisLabels[a] = bg.addTextObject(label, "Segoe UI", 7, "Silver",
+                                     Math.round(CHART_IMG.x + (hh - 6) * 8 - 1), AXIS_Y);
+  }
+  chartInfo = null;
   return true;
 }
 
-function render(data) {
+function render(usage, bill, sum, hours) {
   if (!ensureObjects()) return;
-  var usage = (data && data.usage) || data || {};
+  var u = (usage && usage.usage) || usage || {};
   for (var i = 0; i < ROWS.length; i++) {
-    var item = usage[ROWS[i].key] || {};
+    var item = u[ROWS[i].key] || {};
     var pct = Number(item.percent) || 0;
     var limited = String(item.status) === "rate-limited";
     try { pcts[i].value = pct + "%"; } catch (e) { log("pct: " + e.message); }
     try { rests[i].value = remaining(item.resetsAt); } catch (e) { log("rest: " + e.message); }
     try { dots[i].color = colorFor(pct, limited); } catch (e) { log("color: " + e.message); }
   }
+
+  var credits = bill ? moneyFromMicro(bill.balanceMicroCents) : "--";
+  var cost = sum ? moneyFromMicro(sum.totalCostMicroCents) : "--";
+  if (moneyPair) { setMoney(moneyPair.credits, credits); setMoney(moneyPair.cost, cost); }
+
+  log("render " + pcts[0].value + " / " + pcts[1].value + " / " + pcts[2].value +
+      " - Credits " + credits + " / Kosten " + cost);
+  renderChart();
 }
 
-function refresh() {
+function refresh(syncAllowed) {
   if (busy) return;
   busy = true;
   try {
     var key = readKey();
+    if (!key && syncAllowed !== false) { syncKey(); key = readKey(); }
     if (!key) return;
-    var data = getUsage(key);
-    if (data) render(data);
+    var usage = httpGet(USAGE_URL, key, null);
+    if (!usage && syncAllowed !== false) {
+      log("usage fehlgeschlagen, sync + neuer Versuch");
+      syncKey();
+      var k2 = readKey();
+      if (k2 && k2 !== key) usage = httpGet(USAGE_URL, k2);
+      if (k2) key = k2;
+    }
+    var bill = httpGet(BILLING_URL, key, ORG);
+    var since = encodeURIComponent(localMidnightIso());
+    var sum = httpGet(SUMMARY_URL + "?range=24h&since=" + since +
+                      "&userId=" + USER_ID + "&includeLegacyKeys=true", key, ORG);
+    if (usage || bill || sum) render(usage, bill, sum);
   } catch (e) {
     log("refresh: " + e.message);
   } finally {
@@ -163,7 +378,5 @@ function init() {
 }
 </script>
 </head>
-<body onload="init()" onclick="onClick()"><g:background id="bg" src="src/background.png"></g:background></body>
+<body onload="init()" onclick="onClick()" onmousemove="onMove(event)" onmouseout="hideHover()"><g:background id="bg" src="src/background.png"></g:background></body>
 </html>
-
-
