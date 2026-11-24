@@ -7,7 +7,7 @@ html, body {
   margin: 0px;
   padding: 0px;
   width: 130px;
-  height: 65px;
+  height: 90px;
   overflow: hidden;
   background-color: transparent;
 }
@@ -105,10 +105,10 @@ function ensureObjects() {
   if (bg) return true;
   bg = document.getElementById("bg");
   if (!bg) return false;
-  var y = [5, 26, 47];
+  var y = [9, 39, 69];
   for (var i = 0; i < ROWS.length; i++) {
-    dots[i] = bg.addTextObject("\u25CF", "Tahoma", 7, "LimeGreen", 6, y[i]);
-    texts[i] = bg.addTextObject("", "Segoe UI Semibold", 7, "White", 17, y[i]);
+    dots[i] = bg.addTextObject("\u25CF", "Tahoma", 9, "LimeGreen", 7, y[i]);
+    texts[i] = bg.addTextObject("", "Segoe UI Semibold", 10, "White", 20, y[i]);
   }
   return true;
 }
@@ -163,4 +163,5 @@ function init() {
 </head>
 <body onload="init()" onclick="onClick()"><g:background id="bg" src="src/background.png"></g:background></body>
 </html>
+
 
