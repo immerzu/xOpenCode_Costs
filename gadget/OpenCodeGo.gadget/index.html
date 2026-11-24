@@ -14,7 +14,7 @@ html, body {
 </style>
 <script type="text/javascript">
 /* OpenCode-Go-Auslastung als Sidebar-Gadget.
-   Drei Werte: 5 Stunden, Woche, Monat (Prozent + Restzeit).
+   Zeilenaufbau wie beim DeepSeek-Gadget: kleiner Text, grosse Zahl, kleiner Text.
    Quelle: https://opencode.ai/inference/go/v1/usage (Bearer-Key). */
 
 var KEY_REL = "\\.config\\opencode\\go-usage.key";
@@ -27,7 +27,7 @@ var ROWS = [
   { key: "monthly", label: "Monat" }
 ];
 
-var bg = null, dots = [], texts = [], busy = false;
+var bg = null, dots = [], labels = [], pcts = [], rests = [], busy = false;
 
 function log(msg) {
   try {
@@ -68,7 +68,7 @@ function getUsage(key) {
     req.Open("GET", URL, false);
     req.SetRequestHeader("Authorization", "Bearer " + key);
     req.SetRequestHeader("Accept", "application/json");
-    try { req.SetRequestHeader("User-Agent", "go-usage-gadget/1.0"); } catch (e) {}
+    try { req.SetRequestHeader("User-Agent", "go-usage-gadget/1.1"); } catch (e) {}
     req.Send();
     var status = useWinHttp ? req.Status : req.status;
     var body = useWinHttp ? req.ResponseText : req.responseText;
@@ -105,10 +105,12 @@ function ensureObjects() {
   if (bg) return true;
   bg = document.getElementById("bg");
   if (!bg) return false;
-  var y = [9, 39, 69];
+  var y = [8, 38, 68];
   for (var i = 0; i < ROWS.length; i++) {
-    dots[i] = bg.addTextObject("\u25CF", "Tahoma", 9, "LimeGreen", 7, y[i]);
-    texts[i] = bg.addTextObject("", "Segoe UI Semibold", 10, "White", 20, y[i]);
+    dots[i]   = bg.addTextObject("\u25CF", "Tahoma", 8, "LimeGreen", 7, y[i] + 3);
+    labels[i] = bg.addTextObject(ROWS[i].label, "Segoe UI Semibold", 9, "White", 19, y[i] + 3);
+    pcts[i]   = bg.addTextObject("0%", "Segoe UI Semibold", 13, "White", 58, y[i]);
+    rests[i]  = bg.addTextObject("", "Segoe UI Semibold", 9, "White", 92, y[i] + 3);
   }
   return true;
 }
@@ -120,7 +122,8 @@ function render(data) {
     var item = usage[ROWS[i].key] || {};
     var pct = Number(item.percent) || 0;
     var limited = String(item.status) === "rate-limited";
-    try { texts[i].value = ROWS[i].label + " " + pct + "% \u00B7 " + remaining(item.resetsAt); } catch (e) { log("text: " + e.message); }
+    try { pcts[i].value = pct + "%"; } catch (e) { log("pct: " + e.message); }
+    try { rests[i].value = remaining(item.resetsAt); } catch (e) { log("rest: " + e.message); }
     try { dots[i].color = colorFor(pct, limited); } catch (e) { log("color: " + e.message); }
   }
 }
@@ -130,7 +133,7 @@ function refresh() {
   busy = true;
   try {
     var key = readKey();
-    if (!key) { render({ usage: {} }); return; }
+    if (!key) return;
     var data = getUsage(key);
     if (data) render(data);
   } catch (e) {
@@ -155,7 +158,6 @@ function onClick() {
 
 function init() {
   ensureObjects();
-  render({ usage: {} });
   refresh();
   setInterval(refresh, REFRESH_MS);
 }
@@ -163,5 +165,3 @@ function init() {
 </head>
 <body onload="init()" onclick="onClick()"><g:background id="bg" src="src/background.png"></g:background></body>
 </html>
-
-
