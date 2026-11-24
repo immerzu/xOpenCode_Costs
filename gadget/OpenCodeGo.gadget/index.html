@@ -7,7 +7,7 @@ html, body {
   margin: 0px;
   padding: 0px;
   width: 130px;
-  height: 114px;
+  height: 65px;
   overflow: hidden;
   background-color: transparent;
 }
@@ -81,18 +81,18 @@ function pad2(n) { return n < 10 ? "0" + n : "" + n; }
 
 function remaining(iso) {
   if (!iso) return "";
-  try {
-    var t = Date.parse(iso);
-    if (isNaN(t)) return "";
-    var s = Math.floor((t - (new Date()).getTime()) / 1000);
-    if (s <= 0) return "jetzt";
-    var d = Math.floor(s / 86400); s -= d * 86400;
-    var h = Math.floor(s / 3600); s -= h * 3600;
-    var m = Math.floor(s / 60);
-    if (d > 0) return d + "d" + h + "h";
-    if (h > 0) return h + "h" + pad2(m) + "m";
-    return m + "m";
-  } catch (e) { return ""; }
+  var m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})/.exec(String(iso));
+  if (!m) return "";
+  var target = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]),
+                        Number(m[4]), Number(m[5]), Number(m[6]));
+  var s = Math.floor((target - (new Date()).getTime()) / 1000);
+  if (s <= 0) return "jetzt";
+  var d = Math.floor(s / 86400); s -= d * 86400;
+  var h = Math.floor(s / 3600); s -= h * 3600;
+  var mi = Math.floor(s / 60);
+  if (d > 0) return d + "d" + h + "h";
+  if (h > 0) return h + "h" + pad2(mi) + "m";
+  return mi + "m";
 }
 
 function colorFor(pct, limited) {
@@ -105,10 +105,10 @@ function ensureObjects() {
   if (bg) return true;
   bg = document.getElementById("bg");
   if (!bg) return false;
-  var y = [14, 48, 82];
+  var y = [5, 26, 47];
   for (var i = 0; i < ROWS.length; i++) {
-    dots[i] = bg.addTextObject("\u25CF", "Tahoma", 9, "LimeGreen", 7, y[i]);
-    texts[i] = bg.addTextObject("", "Segoe UI Semibold", 9, "White", 20, y[i]);
+    dots[i] = bg.addTextObject("\u25CF", "Tahoma", 7, "LimeGreen", 6, y[i]);
+    texts[i] = bg.addTextObject("", "Segoe UI Semibold", 7, "White", 17, y[i]);
   }
   return true;
 }
@@ -163,3 +163,4 @@ function init() {
 </head>
 <body onload="init()" onclick="onClick()"><g:background id="bg" src="src/background.png"></g:background></body>
 </html>
+

@@ -28,9 +28,9 @@ function New-Pille([int]$w, [int]$h, [int]$r, [string]$farbe, [string]$rand, [st
 
 New-Item -ItemType Directory -Force -Path (Join-Path $Ziel 'src') | Out-Null
 
-New-Pille 130 114 14 '#2e2e2e' '#454545' (Join-Path $Ziel 'src\background.png')
-New-Pille 130 114 14 '#3a2f1e' '#8a6a2f' (Join-Path $Ziel 'src\background_warn.png')
-New-Pille 130 114 14 '#3a1f1f' '#8a2f2f' (Join-Path $Ziel 'src\background_alert.png')
+New-Pille 130 65 12 '#2e2e2e' '#454545' (Join-Path $Ziel 'src\background.png')
+New-Pille 130 65 12 '#3a2f1e' '#8a6a2f' (Join-Path $Ziel 'src\background_warn.png')
+New-Pille 130 65 12 '#3a1f1f' '#8a2f2f' (Join-Path $Ziel 'src\background_alert.png')
 New-Pille 32 32 6 '#2e2e2e' '#454545' (Join-Path $Ziel 'src\icon.png')
 
 # Gruener Punkt ins Icon
@@ -48,3 +48,4 @@ Copy-Item (Join-Path $Ziel 'src\background.png') (Join-Path $Ziel 'drag.png') -F
 
 Get-ChildItem (Join-Path $Ziel 'src') -File |
     Select-Object Name, Length | Format-Table -AutoSize | Out-String -Width 60
+
